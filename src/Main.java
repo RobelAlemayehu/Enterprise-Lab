@@ -7,42 +7,58 @@ import java.sql.Statement;
 
 public class Main {
 
-    private static final String URL = "jdbc:mysql://localhost:3306/jdbc_db";
-    private static final String USERNAME = "robel";
-    private static final String PASSWORD = "@robel1234";
+    private static final String SERVER_URL = "jdbc:mysql://localhost:3306/";
+    private static final String DB_NAME = "StudentsDB";
+    private static final String USERNAME = "Robel";
+    private static final String PASSWORD = "@Robel1234";
 
     public static void main(String[] args) {
-        try (Connection connection = DriverManager.getConnection(URL, USERNAME, PASSWORD)) {
-            System.out.println("====================================");
-            System.out.println("       ROBEL'S JDBC USER MANAGER    ");
-            System.out.println("====================================");
+        try (Connection server = DriverManager.getConnection(SERVER_URL, USERNAME, PASSWORD);
+             Statement stmt = server.createStatement()) {
+            stmt.executeUpdate("CREATE DATABASE IF NOT EXISTS " + DB_NAME);
+            System.out.println("Database '" + DB_NAME + "' ready.");
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        try (Connection connection = DriverManager.getConnection(SERVER_URL + DB_NAME, USERNAME, PASSWORD)) {
             System.out.println("Database connection established.");
 
-            // 1. Create table
+            // create table
             createTable(connection);
 
-            // 2. CREATE (Insert)
-            printSection("Adding users");
-            int userId1 = createUser(connection, "Robel Alemayehu", "robel@example.com");
-            int userId2 = createUser(connection, "Sara Bekele", "sara@example.com");
+            printSection("Inserting students");
+            int firstId = createStudent(connection, "John", "Doe", 90);
+            String[][] more = {
+                {"Aster", "Nega", "85"},    {"Jemal", "Edris", "72"},
+                {"Haile", "Anaol", "91"},   {"Teddy", "Habtu", "64"},
+                {"Selam", "Tesfaye", "78"}, {"Dawit", "Kebede", "88"},
+                {"Hana", "Mulugeta", "95"}, {"Abel", "Girma", "69"},
+                {"Meron", "Alemu", "82"},   {"Yonas", "Bekele", "76"}
+            };
+            int lastId = firstId;
+            for (String[] s : more) {
+                lastId = createStudent(connection, s[0], s[1], Integer.parseInt(s[2]));
+            }
 
-            // 3. READ (Select)
-            printSection("Current user directory");
-            readUsers(connection);
+            // retrieve five rows
+            printSection("First five students");
+            readStudents(connection);
 
-            // 4. UPDATE
-            printSection("Updating user " + userId1);
-            updateUser(connection, userId1, "Robel Alemayehu", "robel.alemayehu@example.com");
+            // update firstname by id
+            printSection("Updating student " + firstId);
+            updateFirstName(connection, firstId, "Jonathan");
+            readStudents(connection);
 
-            printSection("Directory after update");
-            readUsers(connection);
+            // delete by id
+            printSection("Deleting student " + lastId);
+            deleteStudent(connection, lastId);
+            readStudents(connection);
 
-            // 5. DELETE
-            printSection("Removing user " + userId2);
-            deleteUser(connection, userId2);
-
-            printSection("Final user directory");
-            readUsers(connection);
+            // average grade
+            printSection("Average grade");
+            calculateAverageGrade(connection);
 
         } catch (SQLException e) {
             e.printStackTrace();
@@ -54,66 +70,72 @@ public class Main {
     }
 
     private static void createTable(Connection conn) throws SQLException {
-        String sql = "CREATE TABLE IF NOT EXISTS users (" +
+        String sql = "CREATE TABLE IF NOT EXISTS students (" +
                      "id INT AUTO_INCREMENT PRIMARY KEY, " +
-                     "name VARCHAR(100) NOT NULL, " +
-                     "email VARCHAR(100) NOT NULL" +
-                     ")";
+                     "firstname VARCHAR(255), " +
+                     "lastname VARCHAR(255), " +
+                     "grade INT)";
         try (Statement stmt = conn.createStatement()) {
             stmt.execute(sql);
-            System.out.println("Table 'users' verified/created successfully.");
+            stmt.executeUpdate("TRUNCATE TABLE students");
+            System.out.println("Table 'students' ready.");
         }
     }
 
-    private static int createUser(Connection conn, String name, String email) throws SQLException {
-        String sql = "INSERT INTO users (name, email) VALUES (?, ?)";
+    private static int createStudent(Connection conn, String first, String last, int grade) throws SQLException {
+        String sql = "INSERT INTO students (firstname, lastname, grade) VALUES (?, ?, ?)";
         try (PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            pstmt.setString(1, name);
-            pstmt.setString(2, email);
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                try (ResultSet rs = pstmt.getGeneratedKeys()) {
-                    if (rs.next()) {
-                        int generatedId = rs.getInt(1);
-                        System.out.println("Created user: " + name + " (ID: " + generatedId + ")");
-                        return generatedId;
-                    }
+            pstmt.setString(1, first);
+            pstmt.setString(2, last);
+            pstmt.setInt(3, grade);
+            pstmt.executeUpdate();
+            try (ResultSet rs = pstmt.getGeneratedKeys()) {
+                if (rs.next()) {
+                    int id = rs.getInt(1);
+                    System.out.println("Created student: " + first + " " + last + " (ID: " + id + ")");
+                    return id;
                 }
             }
         }
         return -1;
     }
 
-    private static void readUsers(Connection conn) throws SQLException {
-        String sql = "SELECT id, name, email FROM users";
+    private static void readStudents(Connection conn) throws SQLException {
+        String sql = "SELECT id, firstname, lastname, grade FROM students LIMIT 5";
         try (Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
-                int id = rs.getInt("id");
-                String name = rs.getString("name");
-                String email = rs.getString("email");
-                System.out.printf("#%-4d  %-22s  %s%n", id, name, email);
+                System.out.printf("#%-4d  %-10s %-10s  Grade: %d%n",
+                        rs.getInt("id"), rs.getString("firstname"),
+                        rs.getString("lastname"), rs.getInt("grade"));
             }
         }
     }
 
-    private static void updateUser(Connection conn, int id, String newName, String newEmail) throws SQLException {
-        String sql = "UPDATE users SET name = ?, email = ? WHERE id = ?";
+    private static void updateFirstName(Connection conn, int id, String newFirstName) throws SQLException {
+        String sql = "UPDATE students SET firstname = ? WHERE id = ?";
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, newName);
-            pstmt.setString(2, newEmail);
-            pstmt.setInt(3, id);
-            int rowsUpdated = pstmt.executeUpdate();
-            System.out.println("Updated " + rowsUpdated + " row(s) for User ID: " + id);
+            pstmt.setString(1, newFirstName);
+            pstmt.setInt(2, id);
+            System.out.println("Updated " + pstmt.executeUpdate() + " row(s) for ID: " + id);
         }
     }
 
-    private static void deleteUser(Connection conn, int id) throws SQLException {
-        String sql = "DELETE FROM users WHERE id = ?";
+    private static void deleteStudent(Connection conn, int id) throws SQLException {
+        String sql = "DELETE FROM students WHERE id = ?";
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, id);
-            int rowsDeleted = pstmt.executeUpdate();
-            System.out.println("Deleted " + rowsDeleted + " row(s) for User ID: " + id);
+            System.out.println("Deleted " + pstmt.executeUpdate() + " row(s) for ID: " + id);
+        }
+    }
+
+    private static void calculateAverageGrade(Connection conn) throws SQLException {
+        String sql = "SELECT AVG(grade) AS average_grade FROM students";
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next()) {
+                System.out.printf("Average Grade: %.2f%n", rs.getDouble("average_grade"));
+            }
         }
     }
 }
